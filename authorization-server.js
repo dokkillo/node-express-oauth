@@ -1,4 +1,5 @@
 const fs = require("fs")
+const url = require("url")
 const express = require("express")
 const bodyParser = require("body-parser")
 const jwt = require("jsonwebtoken")
@@ -53,6 +54,95 @@ app.use(bodyParser.urlencoded({ extended: true }))
 /*
 Your code here
 */
+app.get('/authorize', function (req, res) {
+	var clientId = req.query.client_id;
+	var client = clients[clientId];
+	if(!client)
+	{
+		res.status(401).end();
+	}
+	else
+	{	
+		if (typeof req.query.scope !== "string" || 	!containsAll(client.scopes, req.query.scope.split(" "))	) 	
+		{
+			res.status(401).end();			
+		}
+		else
+		{	
+			const requestId = randomString()
+			requests[requestId] = req.query
+			res.render("login",  {
+				client,
+				scope: req.query.scope,
+				requestId,
+			});
+			
+		}
+	}
+
+	
+  });
+
+  app.post('/approve', function (req, res) {
+	const { userName, password, requestId } = req.body
+	if (!userName || users[userName] !== password) {
+		res.status(401).end();		
+	}
+	const clientReq = requests[requestId]
+	delete requests[requestId]
+	if (!clientReq) {
+		res.status(401).end();
+	}
+	const code = randomString()
+	authorizationCodes[code] = { clientReq, userName }
+	const redirectUri = url.parse(clientReq.redirect_uri)
+	redirectUri.query = {
+		code,
+		state: clientReq.state,
+	}
+	res.redirect(url.format(redirectUri))
+
+	res.status(200).end();
+
+  });
+
+
+  app.post('/token', function (req, res) {
+
+	let authCredentials = req.headers.authorization
+	if (!authCredentials) {
+		res.status(401).end();
+		}
+
+	const code = req.body.code
+	if (!code || !authorizationCodes[code]) {
+			res.status(401).end();
+	}
+	const { clientReq, userName } = authorizationCodes[code]
+	delete authorizationCodes[code]
+
+	const token = jwt.sign(
+		{
+			userName,
+			scope: clientReq.scope,
+		},
+		config.privateKey,
+		{
+			algorithm: "RS256",
+			expiresIn: 300,
+			issuer: "http://localhost:" + config.port,
+		}
+	)
+
+	res.json({
+		access_token: token,
+		token_type: "Bearer",
+		scope: clientReq.scope,
+	})
+
+	res.status(200).end();
+
+  });
 
 const server = app.listen(config.port, "localhost", function () {
 	var host = server.address().address
