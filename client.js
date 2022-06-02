@@ -1,3 +1,4 @@
+const url = require("url")
 const express = require("express")
 const bodyParser = require("body-parser")
 const axios = require("axios").default
@@ -26,6 +27,61 @@ app.use(bodyParser.urlencoded({ extended: true }))
 /*
 Your code here
 */
+
+app.get('/authorize', function (req, res) {
+
+	state = randomString();
+	const redirectUrl = url.parse(config.authorizationEndpoint)
+	redirectUrl.query = {
+		response_type: "code",
+		client_id: config.clientId,
+		redirect_uri: config.redirectUri,
+		scope: "permission:name permission:date_of_birth",
+		state: state,
+	}
+	res.redirect(url.format(redirectUrl))	
+
+});
+
+
+app.get('/callback', function (req, res) {
+
+	if (req.query.state !== state) {
+		res.status(403).send("Error: state mismatch")
+		return
+	}
+	const { code } = req.query
+	axios({
+		method: "POST",
+		url: config.tokenEndpoint,
+		auth: {
+			username: config.clientId,
+			password: config.clientSecret,
+		},
+		data: {
+			code,
+		},
+		validateStatus: null,
+	})
+		.then((response) => {
+			return axios({
+				method: "GET",
+				url: config.userInfoEndpoint,
+				headers: {
+					authorization: "bearer " + response.data.access_token,
+				},
+			})
+		})
+		.then((response) => {
+			res.render("welcome", { user: response.data })
+		})
+		.catch((err) => {
+			console.error(err)
+			res.status(500).send("Error: something went wrong")
+		})
+
+});
+
 
 const server = app.listen(config.port, "localhost", function () {
 	var host = server.address().address
